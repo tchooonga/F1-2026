@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>F1 Tracker - Acompanhador de Carreira</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        f1red: '#e10600',
+                        carbon: '#0f0f14',
+                        cardbg: '#181820',
+                        cardborder: '#2a2a36',
+                        inputbg: '#101016'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons & Chart.js -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap');
+        
+        body {
+            background-color: #09090e;
+            background-image: radial-gradient(rgba(225, 6, 0, 0.04) 1px, transparent 0);
+            background-size: 20px 20px;
+            color: #f3f4f6;
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Otimização para barras de rolagem */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f0f14;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a2a36;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #e10600;
+        }
+
+        .glow-f1 {
+            box-shadow: 0 0 15px rgba(225, 6, 0, 0.25);
+        }
+
+        .carbon-pattern {
+            background: linear-gradient(135deg, #181820 25%, #13131a 25%, #13131a 50%, #181820 50%, #181820 75%, #13131a 75%, #13131a 100%);
+            background-size: 10px 10px;
+        }
+
+        /* Otimização Touch e Área Segura para Dispositivos Móveis */
+        .touch-target {
+            min-height: 44px;
+            min-width: 44px;
+        }
+
+        .pb-safe {
+            padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between antialiased selection:bg-f1red selection:text-white pb-safe lg:pb-0">
+
+    <!-- Cabeçalho Principal (Desktop / Mobile Top Bar) -->
+    <header class="border-b border-cardborder bg-carbon/95 backdrop-blur-md sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <!-- Logo e Título -->
+            <div class="flex items-center gap-2.5">
+                <div class="bg-f1red text-white font-black italic px-2.5 py-1 rounded text-lg tracking-tighter shadow-md">
+                    F1
+                </div>
+                <div>
+                    <h1 class="font-black text-sm sm:text-base leading-none tracking-wide text-white uppercase italic">Modo Carreira</h1>
+                    <p class="text-[10px] sm:text-xs text-gray-400 font-mono">Telemetria & Temporadas</p>
+                </div>
+            </div>
+
+            <!-- Navegação Desktop -->
+            <nav class="hidden md:flex space-x-1 bg-black/50 p-1 rounded-xl border border-cardborder">
+                <button id="nav-seasons-desktop" onclick="switchTab('seasons')" class="px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 bg-f1red text-white shadow-md">
+                    <i class="fa-solid fa-flag-checkered"></i> <span>Temporadas</span>
+                </button>
+                <button id="nav-compare-desktop" onclick="switchTab('compare')" class="px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 text-gray-400 hover:text-white hover:bg-white/5">
+                    <i class="fa-solid fa-chart-sim text-sm"></i> <span>Comparar Carreira</span>
+                </button>
+            </nav>
+
+            <!-- Botões de Ação de Dados (Exportar / Importar) -->
+            <div class="flex items-center gap-1.5">
+                <button onclick="exportData()" title="Exportar Dados (JSON)" class="touch-target p-2 text-gray-400 hover:text-white hover:bg-cardbg rounded-lg border border-transparent hover:border-cardborder transition flex items-center justify-center">
+                    <i class="fa-solid fa-download text-sm sm:text-base"></i>
+                </button>
+                <label title="Importar Dados (JSON)" class="touch-target p-2 text-gray-400 hover:text-white hover:bg-cardbg rounded-lg border border-transparent hover:border-cardborder transition cursor-pointer flex items-center justify-center">
+                    <i class="fa-solid fa-upload text-sm sm:text-base"></i>
+                    <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <!-- Conteúdo Principal -->
+    <main class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 flex-1 w-full">
+
+        <!-- Notificações Toast -->
+        <div id="toast-container" class="fixed top-20 right-4 z-50 flex flex-col gap-2 max-w-xs w-full pointer-events-none"></div>
+
+        <!-- ================= ABA 1: GERENCIADOR DE TEMPORADAS ================= -->
+        <section id="tab-seasons" class="space-y-4 sm:space-y-6">
+            <!-- Barra Superior de Controle de Temporadas -->
+            <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-cardbg p-4 sm:p-5 rounded-2xl border border-cardborder shadow-xl">
+                <div>
+                    <h2 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-trophy text-amber-400"></i> Suas Temporadas
+                    </h2>
+                    <p class="text-xs text-gray-400 mt-0.5">Gerencie os registros de corridas e escuderias de cada ano.</p>
+                </div>
+                <button onclick="openCreateSeasonModal()" class="touch-target bg-f1red hover:bg-red-700 text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition shadow-lg glow-f1 active:scale-95">
+                    <i class="fa-solid fa-plus text-sm"></i> Nova Temporada
+                </button>
+            </div>
+
+            <!-- Selecionador Horizontal de Temporadas Ativas -->
+            <div id="season-selector-bar" class="flex gap-2 overflow-x-auto pb-1 scrollbar-none touch-pan-x">
+                <!-- Abas dinâmicas de temporada -->
+            </div>
+
+            <!-- Detalhes e Telemetria da Temporada Selecionada -->
+            <div id="active-season-container" class="space-y-4 sm:space-y-6">
+                <!-- Card do Resumo da Temporada -->
+                <div id="season-summary-card" class="bg-cardbg border border-cardborder rounded-2xl p-4 sm:p-6 carbon-pattern relative overflow-hidden shadow-2xl">
+                    <div id="team-accent-bar" class="absolute top-0 left-0 right-0 h-1.5 bg-f1red"></div>
+                    <div id="season-header-details">
+                        <!-- Preenchido via JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Lista de Corridas (10 Corridas por Temporada) -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-4 sm:p-6 shadow-xl">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+                        <div>
+                            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-stopwatch text-f1red"></i> Telemetria de Corridas (10 GPs)
+                            </h3>
+                            <p class="text-xs text-gray-400">Registre os tempos de classificação, posições e volta mais rápida de cada GP.</p>
+                        </div>
+                        <div class="text-[11px] font-mono bg-black/60 px-3 py-1.5 rounded-lg border border-cardborder text-gray-300 w-full sm:w-auto text-center sm:text-right">
+                            Pontuação FIA: <span class="text-f1red font-bold">25-18-15-12-10-8-6-4-2-1</span> (+1 VMR)
+                        </div>
+                    </div>
+
+                    <!-- Grid de Cards de Corrida Otimizado para Mobile -->
+                    <div id="races-list" class="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                        <!-- Preenchido via JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= ABA 2: COMPARAÇÃO MULTI-TEMPORADA ================= -->
+        <section id="tab-compare" class="space-y-4 sm:space-y-6 hidden">
+            <!-- Filtro de Seleção para Comparação -->
+            <div class="bg-cardbg p-4 sm:p-5 rounded-2xl border border-cardborder flex flex-col gap-3">
+                <div>
+                    <h2 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line text-f1red"></i> Comparativo de Desempenho
+                    </h2>
+                    <p class="text-xs text-gray-400 mt-0.5">Selecione as temporadas abaixo para analisar a sua evolução ao longo da carreira.</p>
+                </div>
+                <!-- Checkboxes de Seleção de Temporada -->
+                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-cardborder/60" id="season-compare-checkboxes">
+                    <!-- Opções dinâmicas -->
+                </div>
+            </div>
+
+            <!-- Métricas Comparativas de Topo -->
+            <div id="comparison-metrics-grid" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+                <!-- Cards de Estatísticas preenchidos via JS -->
+            </div>
+
+            <!-- Tabela Comparativa Lado a Lado (Com rolagem horizontal para mobile) -->
+            <div class="bg-cardbg border border-cardborder rounded-2xl p-4 sm:p-6 shadow-xl">
+                <h3 class="text-sm sm:text-base font-bold text-white mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-list-ol text-amber-400"></i> Tabela Comparativa de Temporadas
+                </h3>
+                <div class="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                    <table class="w-full text-left text-xs sm:text-sm min-w-[600px]">
+                        <thead class="bg-black/50 text-gray-400 uppercase text-[10px] sm:text-xs border-b border-cardborder font-mono">
+                            <tr>
+                                <th class="p-2.5 sm:p-3">Temporada</th>
+                                <th class="p-2.5 sm:p-3">Escuderia / Equipe</th>
+                                <th class="p-2.5 sm:p-3 text-center">GPs</th>
+                                <th class="p-2.5 sm:p-3 text-center">Vitórias</th>
+                                <th class="p-2.5 sm:p-3 text-center">Pódios</th>
+                                <th class="p-2.5 sm:p-3 text-center">Média Chegada</th>
+                                <th class="p-2.5 sm:p-3 text-center">DNFs</th>
+                                <th class="p-2.5 sm:p-3 text-right">Pontos Totais</th>
+                            </tr>
+                        </thead>
+                        <tbody id="compare-table-body" class="divide-y divide-cardborder font-mono">
+                            <!-- Preenchido via JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Gráficos Comparativos da Carreira -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                <!-- Gráfico 1: Trajetória de Pontuação Cumulativa -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col">
+                    <h4 class="text-xs sm:text-sm font-bold text-gray-200 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line text-f1red"></i> Acúmulo de Pontos Corrida a Corrida
+                    </h4>
+                    <div class="relative flex-1 h-[250px] sm:h-[300px] w-full">
+                        <canvas id="pointsChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Gráfico 2: Posicionamento Final nas Corridas -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col">
+                    <h4 class="text-xs sm:text-sm font-bold text-gray-200 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-arrow-trend-up text-cyan-400"></i> Posição de Chegada por GP
+                    </h4>
+                    <div class="relative flex-1 h-[250px] sm:h-[300px] w-full">
+                        <canvas id="finishChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Gráfico 3: Comparativo Grid de Largada vs Chegada -->
+                <div class="bg-cardbg border border-cardborder rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col lg:col-span-2">
+                    <h4 class="text-xs sm:text-sm font-bold text-gray-200 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-right-left text-emerald-400"></i> Ritmo Médio: Classificação (Grid) vs Corrida (Chegada)
+                    </h4>
+                    <div class="relative flex-1 h-[250px] sm:h-[300px] w-full">
+                        <canvas id="paceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Barra de Navegação Inferior para Celulares (Mobile Dock Navigation) -->
+    <div class="md:hidden fixed bottom-0 left-0 right-0 bg-carbon/95 backdrop-blur-lg border-t border-cardborder z-40 px-6 py-2 flex justify-around items-center">
+        <button id="nav-seasons-mobile" onclick="switchTab('seasons')" class="flex flex-col items-center gap-1 text-f1red">
+            <i class="fa-solid fa-flag-checkered text-lg"></i>
+            <span class="text-[10px] font-bold">Temporadas</span>
+        </button>
+        <button id="nav-compare-mobile" onclick="switchTab('compare')" class="flex flex-col items-center gap-1 text-gray-400 hover:text-white">
+            <i class="fa-solid fa-chart-line text-lg"></i>
+            <span class="text-[10px] font-bold">Comparar</span>
+        </button>
+    </div>
+
+    <!-- Modal: Criar / Editar Temporada -->
+    <div id="season-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center hidden p-0 sm:p-4">
+        <div class="bg-cardbg border border-cardborder rounded-t-2xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <div class="w-12 h-1 bg-gray-600 rounded-full mx-auto mb-4 sm:hidden"></div>
+            <h3 id="modal-season-title" class="text-lg sm:text-xl font-bold text-white mb-4">Nova Temporada</h3>
+            <form id="season-form" onsubmit="handleSaveSeason(event)" class="space-y-4">
+                <input type="hidden" id="modal-season-id">
+                
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Nome da Temporada</label>
+                    <input type="text" id="modal-season-name" required placeholder="Ex: Temporada 2026 ou Ano 1" class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-f1red text-sm font-medium">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Nome do Piloto</label>
+                    <input type="text" id="modal-driver-name" required placeholder="Ex: Seu Nome / Piloto" class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-f1red text-sm font-medium">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Escuderia / Equipe</label>
+                    <select id="modal-team-select" required class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-f1red text-sm font-medium">
+                        <!-- Opções preenchidas via JS -->
+                    </select>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-4 border-t border-cardborder">
+                    <button type="button" onclick="closeSeasonModal()" class="touch-target px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-gray-400 hover:text-white transition">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="touch-target px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-f1red text-white hover:bg-red-700 transition shadow-lg">
+                        Salvar Temporada
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Editar Telemetria de GP -->
+    <div id="race-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center hidden p-0 sm:p-4">
+        <div class="bg-cardbg border border-cardborder rounded-t-2xl sm:rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+            <div class="w-12 h-1 bg-gray-600 rounded-full mx-auto mb-4 sm:hidden"></div>
+            <h3 id="modal-race-title" class="text-lg sm:text-xl font-bold text-white mb-4">Editar Telemetria do GP</h3>
+            <form id="race-form" onsubmit="handleSaveRace(event)" class="space-y-4">
+                <input type="hidden" id="modal-race-index">
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Circuito / Grande Prêmio</label>
+                        <select id="modal-race-track" required class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-f1red text-sm font-medium">
+                            <!-- Preenchido via JS -->
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Tempo de Qualificação</label>
+                        <input type="text" id="modal-race-quali" placeholder="Ex: 1:16.432" class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-f1red text-sm">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Pos. Largada (Grid)</label>
+                        <input type="number" id="modal-race-grid" min="1" max="20" required class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-f1red text-sm">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Pos. Chegada</label>
+                        <input type="number" id="modal-race-finish" min="1" max="20" required class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-f1red text-sm">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Tempo de Corrida / Gap</label>
+                        <input type="text" id="modal-race-time" placeholder="Ex: +3.412s ou Vencedor" class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-f1red text-sm">
+                    </div>
+
+                    <div class="flex items-center pt-2 sm:pt-6">
+                        <label class="flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" id="modal-race-fl" class="w-5 h-5 text-f1red rounded border-cardborder bg-inputbg focus:ring-f1red">
+                            <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                                <i class="fa-solid fa-stopwatch"></i> Volta Mais Rápida (+1 Ponto)
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Status da Corrida</label>
+                        <select id="modal-race-status" class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-f1red text-sm font-medium">
+                            <option value="Finalizado">Finalizado</option>
+                            <option value="DNF">DNF (Abandono)</option>
+                            <option value="DSQ">DSQ (Desqualificado)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Observações / Penalidades</label>
+                        <input type="text" id="modal-race-notes" placeholder="Ex: Punição de 5s por limites" class="w-full bg-inputbg border border-cardborder rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-f1red text-sm">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-4 border-t border-cardborder">
+                    <button type="button" onclick="closeRaceModal()" class="touch-target px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-gray-400 hover:text-white transition">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="touch-target px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-f1red text-white hover:bg-red-700 transition shadow-lg">
+                        Salvar Telemetria
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        /* ================= ESCUDERIAS E CIRCUITOS (PT-BR) ================= */
+        const CONSTRUCTORS = [
+            { id: 'ferrari', name: 'Scuderia Ferrari', color: '#e80020' },
+            { id: 'redbull', name: 'Red Bull Racing', color: '#3671C6' },
+            { id: 'mercedes', name: 'Mercedes-AMG PETRONAS', color: '#27F4D2' },
+            { id: 'mclaren', name: 'McLaren Formula 1 Team', color: '#FF8000' },
+            { id: 'aston', name: 'Aston Martin Aramco', color: '#229971' },
+            { id: 'alpine', name: 'BWT Alpine F1 Team', color: '#0093cc' },
+            { id: 'williams', name: 'Williams Racing', color: '#64C4FF' },
+            { id: 'rb', name: 'Visa Cash App RB', color: '#6692FF' },
+            { id: 'sauber', name: 'Stake F1 Team Kick Sauber', color: '#52e252' },
+            { id: 'haas', name: 'MoneyGram Haas F1 Team', color: '#B6BABD' },
+            { id: 'audi', name: 'Audi Revolut F1 Team', color: '#f02800' },
+            { id: 'cadillac', name: 'Cadillac F1 Team', color: '#e5ab00' }
+        ];
+
+        const TRACKS = [
+            { id: 'bahrain', name: 'GP do Bahrein (Sakhir)', country: '🇧🇭' },
+            { id: 'jeddah', name: 'GP da Arábia Saudita (Jeddah)', country: '🇸🇦' },
+            { id: 'melbourne', name: 'GP da Austrália (Melbourne)', country: '🇦🇺' },
+            { id: 'suzuka', name: 'GP do Japão (Suzuka)', country: '🇯🇵' },
+            { id: 'miami', name: 'GP de Miami (Miami)', country: '🇺🇸' },
+            { id: 'imola', name: 'GP da Emília-Romanha (Imola)', country: '🇮🇹' },
+            { id: 'monaco', name: 'GP de Mônaco (Monte Carlo)', country: '🇲🇨' },
+            { id: 'silverstone', name: 'GP da Grã-Bretanha (Silverstone)', country: '🇬🇧' },
+            { id: 'spa', name: 'GP da Bélgica (Spa-Francorchamps)', country: '🇧🇪' },
+            { id: 'monza', name: 'GP da Itália (Monza)', country: '🇮🇹' },
+            { id: 'singapore', name: 'GP de Cingapura (Marina Bay)', country: '🇸🇬' },
+            { id: 'cota', name: 'GP dos EUA (Austin)', country: '🇺🇸' },
+            { id: 'interlagos', name: 'GP de São Paulo (Interlagos)', country: '🇧🇷' },
+            { id: 'madrid', name: 'GP da Espanha (Madri)', country: '🇪🇸' },
+            { id: 'yasmarina', name: 'GP de Abu Dhabi (Yas Marina)', country: '🇦🇪' }
+        ];
+
+        // Tabela Oficial de Pontuação F1
+        const F1_POINTS_MAP = { 1: 25, 2: 18, 3: 15, 4: 12, 5: 10, 6: 8, 7: 6, 8: 4, 9: 2, 10: 1 };
+
+        /* ================= GERENCIAMENTO DE ESTADO ================= */
+        let state = {
+            activeSeasonId: null,
+            selectedCompareIds: [],
+            seasons: []
+        };
+
+        let pointsChartInstance = null;
+        let finishChartInstance = null;
+        let paceChartInstance = null;
+
+        // Dados de Demonstração Inicial
+        const DEMO_SEASONS = [
+            {
+                id: 's1-2025',
+                name: 'Temporada 1 (2025)',
+                driver: 'Seu Piloto',
+                teamId: 'williams',
+                races: [
+                    { trackId: 'bahrain', quali: '1:30.120', grid: 8, finish: 6, time: '+24.120s', fl: false, status: 'Finalizado', notes: 'Boa estreia nos pontos' },
+                    { trackId: 'melbourne', quali: '1:17.890', grid: 6, finish: 4, time: '+15.400s', fl: false, status: 'Finalizado', notes: 'Quase pódio' },
+                    { trackId: 'suzuka', quali: '1:29.450', grid: 10, finish: 8, time: '+32.100s', fl: false, status: 'Finalizado', notes: '' },
+                    { trackId: 'monaco', quali: '1:12.110', grid: 4, finish: 3, time: '+4.200s', fl: false, status: 'Finalizado', notes: 'Primeiro Pódio!' },
+                    { trackId: 'silverstone', quali: '1:27.320', grid: 5, finish: 2, time: '+1.850s', fl: true, status: 'Finalizado', notes: 'Volta mais rápida' },
+                    { trackId: 'spa', quali: '1:46.500', grid: 7, finish: 18, time: 'DNF', fl: false, status: 'DNF', notes: 'Falha hidráulica' },
+                    { trackId: 'monza', quali: '1:20.210', grid: 3, finish: 1, time: '1:18:24.110', fl: false, status: 'Finalizado', notes: 'Primeira Vitória na F1!' },
+                    { trackId: 'cota', quali: '1:34.800', grid: 5, finish: 5, time: '+18.900s', fl: false, status: 'Finalizado', notes: '' },
+                    { trackId: 'interlagos', quali: '1:10.900', grid: 2, finish: 2, time: '+0.950s', fl: true, status: 'Finalizado', notes: 'Corrida na chuva' },
+                    { trackId: 'yasmarina', quali: '1:23.400', grid: 4, finish: 3, time: '+8.100s', fl: false, status: 'Finalizado', notes: 'Pódio de encerramento' }
+                ]
+            },
+            {
+                id: 's2-2026',
+                name: 'Temporada 2 (2026)',
+                driver: 'Seu Piloto',
+                teamId: 'ferrari',
+                races: [
+                    { trackId: 'bahrain', quali: '1:29.800', grid: 2, finish: 1, time: '1:31:02.400', fl: true, status: 'Finalizado', notes: 'Vitória na estreia da Ferrari' },
+                    { trackId: 'jeddah', quali: '1:28.100', grid: 1, finish: 1, time: '1:25:10.900', fl: false, status: 'Finalizado', notes: 'Pole & Vitória' },
+                    { trackId: 'melbourne', quali: '1:16.900', grid: 3, finish: 2, time: '+3.100s', fl: false, status: 'Finalizado', notes: '' },
+                    { trackId: 'madrid', quali: '1:13.200', grid: 1, finish: 1, time: '1:29:40.000', fl: true, status: 'Finalizado', notes: 'Dominante no circuito urbano' },
+                    { trackId: 'monaco', quali: '1:11.200', grid: 1, finish: 1, time: '1:42:15.000', fl: false, status: 'Finalizado', notes: 'Vitória icônica em Mônaco' },
+                    { trackId: 'silverstone', quali: '1:26.100', grid: 2, finish: 3, time: '+6.400s', fl: false, status: 'Finalizado', notes: '' },
+                    { trackId: 'spa', quali: '1:44.800', grid: 4, finish: 1, time: '1:20:11.200', fl: true, status: 'Finalizado', notes: '' },
+                    { trackId: 'monza', quali: '1:19.300', grid: 1, finish: 1, time: '1:14:00.100', fl: true, status: 'Finalizado', notes: 'Festa com os Tifosi em Monza!' },
+                    { trackId: 'interlagos', quali: '1:09.800', grid: 3, finish: 4, time: '+12.300s', fl: false, status: 'Finalizado', notes: '' },
+                    { trackId: 'yasmarina', quali: '1:22.500', grid: 2, finish: 1, time: '1:27:00.000', fl: false, status: 'Finalizado', notes: 'Título de Campeão Selado!' }
+                ]
+            }
+        ];
+
+        window.onload = function() {
+            initApp();
+        };
+
+        function initApp() {
+            // Carregar dados salvos no localStorage
+            const savedData = localStorage.getItem('f1_career_tracker_ptbr');
+            if (savedData) {
+                try {
+                    state = JSON.parse(savedData);
+                } catch(e) {
+                    console.error("Erro ao carregar estado salvo", e);
+                    state.seasons = DEMO_SEASONS;
+                }
+            } else {
+                state.seasons = DEMO_SEASONS;
+            }
+
+            if (state.seasons.length > 0 && !state.activeSeasonId) {
+                state.activeSeasonId = state.seasons[0].id;
+            }
+
+            if (!state.selectedCompareIds || state.selectedCompareIds.length === 0) {
+                state.selectedCompareIds = state.seasons.map(s => s.id);
+            }
+
+            populateConstructorDropdown();
+            populateTrackDropdown();
+            renderSeasonsTab();
+            saveState();
+        }
+
+        function saveState() {
+            localStorage.setItem('f1_career_tracker_ptbr', JSON.stringify(state));
+        }
+
+        function switchTab(tab) {
+            const seasonsTab = document.getElementById('tab-seasons');
+            const compareTab = document.getElementById('tab-compare');
+
+            // Botoes desktop
+            const navSeasonsDesk = document.getElementById('nav-seasons-desktop');
+            const navCompareDesk = document.getElementById('nav-compare-desktop');
+
+            // Botoes mobile
+            const navSeasonsMob = document.getElementById('nav-seasons-mobile');
+            const navCompareMob = document.getElementById('nav-compare-mobile');
+
+            if (tab === 'seasons') {
+                seasonsTab.classList.remove('hidden');
+                compareTab.classList.add('hidden');
+
+                navSeasonsDesk.className = "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 bg-f1red text-white shadow-md";
+                navCompareDesk.className = "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 text-gray-400 hover:text-white hover:bg-white/5";
+
+                navSeasonsMob.className = "flex flex-col items-center gap-1 text-f1red";
+                navCompareMob.className = "flex flex-col items-center gap-1 text-gray-400 hover:text-white";
+            } else {
+                seasonsTab.classList.add('hidden');
+                compareTab.classList.remove('hidden');
+
+                navCompareDesk.className = "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 bg-f1red text-white shadow-md";
+                navSeasonsDesk.className = "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 text-gray-400 hover:text-white hover:bg-white/5";
+
+                navCompareMob.className = "flex flex-col items-center gap-1 text-f1red";
+                navSeasonsMob.className = "flex flex-col items-center gap-1 text-gray-400 hover:text-white";
+
+                renderCompareTab();
+            }
+        }
+
+        function calculateRacePoints(race) {
+            if (race.status === 'DNF' || race.status === 'DSQ') return 0;
+            let points = F1_POINTS_MAP[race.finish] || 0;
+            // 1 ponto extra para volta mais rápida no Top 10
+            if (race.fl && race.finish <= 10) {
+                points += 1;
+            }
+            return points;
+        }
+
+        function getSeasonStats(season) {
+            let totalPoints = 0;
+            let wins = 0;
+            let podiums = 0;
+            let dnfs = 0;
+            let gridSum = 0;
+            let finishSum = 0;
+            let validFinishCount = 0;
+
+            season.races.forEach(r => {
+                totalPoints += calculateRacePoints(r);
+                if (r.finish === 1 && r.status === 'Finalizado') wins++;
+                if (r.finish <= 3 && r.status === 'Finalizado') podiums++;
+                if (r.status === 'DNF' || r.status === 'DSQ') dnfs++;
+
+                gridSum += Number(r.grid) || 0;
+                finishSum += Number(r.finish) || 0;
+                validFinishCount++;
+            });
+
+            const avgGrid = validFinishCount ? (gridSum / validFinishCount).toFixed(1) : '-';
+            const avgFinish = validFinishCount ? (finishSum / validFinishCount).toFixed(1) : '-';
+
+            return {
+                totalPoints,
+                wins,
+                podiums,
+                dnfs,
+                avgGrid,
+                avgFinish,
+                completedRaces: season.races.length
+            };
+        }
+
+        function renderSeasonsTab() {
+            const selectorBar = document.getElementById('season-selector-bar');
+            selectorBar.innerHTML = '';
+
+            if (state.seasons.length === 0) {
+                document.getElementById('active-season-container').classList.add('hidden');
+                selectorBar.innerHTML = `<p class="text-xs text-gray-400 italic p-2">Nenhuma temporada criada. Clique em "+ Nova Temporada" acima.</p>`;
+                return;
+            } else {
+                document.getElementById('active-season-container').classList.remove('hidden');
+            }
+
+            // Renderizar seletor de temporadas em pílulas
+            state.seasons.forEach(season => {
+                const team = CONSTRUCTORS.find(c => c.id === season.teamId) || CONSTRUCTORS[0];
+                const isActive = season.id === state.activeSeasonId;
+
+                const btn = document.createElement('button');
+                btn.onclick = () => {
+                    state.activeSeasonId = season.id;
+                    renderSeasonsTab();
+                };
+
+                btn.className = `touch-target flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition border whitespace-nowrap shrink-0 ${
+                    isActive 
+                        ? 'bg-cardbg border-f1red text-white shadow-lg' 
+                        : 'bg-black/40 border-cardborder text-gray-400 hover:text-white'
+                }`;
+
+                btn.innerHTML = `
+                    <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${team.color}"></span>
+                    <span>${escapeHTML(season.name)}</span>
+                `;
+
+                selectorBar.appendChild(btn);
+            });
+
+            const activeSeason = state.seasons.find(s => s.id === state.activeSeasonId) || state.seasons[0];
+            if (activeSeason) {
+                renderActiveSeasonHeader(activeSeason);
+                renderRacesList(activeSeason);
+            }
+        }
+
+        function renderActiveSeasonHeader(season) {
+            const team = CONSTRUCTORS.find(c => c.id === season.teamId) || CONSTRUCTORS[0];
+            const stats = getSeasonStats(season);
+
+            document.getElementById('team-accent-bar').style.backgroundColor = team.color;
+
+            const headerDetails = document.getElementById('season-header-details');
+            headerDetails.innerHTML = `
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 sm:gap-6">
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                            <h2 class="text-xl sm:text-2xl font-black text-white tracking-tight">${escapeHTML(season.name)}</h2>
+                            <div class="flex items-center gap-1.5 ml-auto sm:ml-0">
+                                <button onclick="openEditSeasonModal('${season.id}')" class="touch-target text-[11px] font-semibold text-gray-300 hover:text-white bg-black/50 px-2.5 py-1 rounded-lg border border-cardborder transition">
+                                    <i class="fa-solid fa-pen"></i> Editar
+                                </button>
+                                <button onclick="deleteSeason('${season.id}')" class="touch-target text-[11px] font-semibold text-red-400 hover:text-red-300 bg-black/50 px-2.5 py-1 rounded-lg border border-cardborder transition">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2.5 mt-2 text-xs text-gray-300 font-mono">
+                            <span class="flex items-center gap-1"><i class="fa-solid fa-user-astronaut text-f1red"></i> ${escapeHTML(season.driver)}</span>
+                            <span class="text-gray-600">•</span>
+                            <span class="flex items-center gap-1.5">
+                                <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color:${team.color}"></span>
+                                <strong>${team.name}</strong>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Métricas da Temporada -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        <div class="bg-black/50 border border-cardborder p-2.5 rounded-xl text-center">
+                            <div class="text-[10px] text-gray-400 uppercase font-mono">Pontos</div>
+                            <div class="text-lg sm:text-xl font-black text-f1red font-mono">${stats.totalPoints}</div>
+                        </div>
+                        <div class="bg-black/50 border border-cardborder p-2.5 rounded-xl text-center">
+                            <div class="text-[10px] text-gray-400 uppercase font-mono">Vitórias / Pódios</div>
+                            <div class="text-lg sm:text-xl font-black text-amber-400 font-mono">${stats.wins} <span class="text-xs text-gray-400 font-normal">/ ${stats.podiums}</span></div>
+                        </div>
+                        <div class="bg-black/50 border border-cardborder p-2.5 rounded-xl text-center">
+                            <div class="text-[10px] text-gray-400 uppercase font-mono">Média Chegada</div>
+                            <div class="text-lg sm:text-xl font-black text-cyan-400 font-mono">P${stats.avgFinish}</div>
+                        </div>
+                        <div class="bg-black/50 border border-cardborder p-2.5 rounded-xl text-center">
+                            <div class="text-[10px] text-gray-400 uppercase font-mono">Abandonos</div>
+                            <div class="text-lg sm:text-xl font-black text-gray-300 font-mono">${stats.dnfs}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRacesList(season) {
+            const racesList = document.getElementById('races-list');
+            racesList.innerHTML = '';
+
+            const maxRaces = 10;
+            for (let i = 0; i < maxRaces; i++) {
+                const race = season.races[i];
+
+                if (race) {
+                    const track = TRACKS.find(t => t.id === race.trackId) || TRACKS[0];
+                    const pts = calculateRacePoints(race);
+                    const isPodium = race.finish <= 3 && race.status === 'Finalizado';
+                    const isWin = race.finish === 1 && race.status === 'Finalizado';
+
+                    const card = document.createElement('div');
+                    card.className = `bg-black/40 border border-cardborder rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between hover:border-gray-500 transition relative overflow-hidden ${
+                        isWin ? 'border-l-4 border-l-amber-400' : isPodium ? 'border-l-4 border-l-gray-300' : ''
+                    }`;
+
+                    card.innerHTML = `
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <div class="text-[10px] font-mono text-gray-400 uppercase">Rodada ${i + 1} de 10</div>
+                                <h4 class="font-bold text-white text-sm sm:text-base flex items-center gap-1.5 mt-0.5">
+                                    <span>${track.country}</span> ${track.name}
+                                </h4>
+                            </div>
+                            <div class="text-right font-mono">
+                                <span class="text-base sm:text-lg font-black ${pts > 0 ? 'text-f1red' : 'text-gray-500'}">+${pts} PTS</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 my-2.5 p-2 bg-black/50 rounded-xl text-xs font-mono border border-cardborder/60">
+                            <div><span class="text-gray-400">Quali:</span> <span class="text-gray-200">${race.quali || 'N/A'}</span> <span class="text-gray-400">(P${race.grid})</span></div>
+                            <div><span class="text-gray-400">Chegada:</span> <span class="font-bold ${isWin ? 'text-amber-400' : 'text-white'}">P${race.finish}</span></div>
+                            <div><span class="text-gray-400">Tempo:</span> <span class="text-gray-300 truncate">${race.time || '-'}</span></div>
+                            <div class="flex items-center gap-1">
+                                ${race.fl ? '<span class="text-amber-400 font-bold"><i class="fa-solid fa-stopwatch"></i> VMR</span>' : '<span class="text-gray-500 text-[11px]">Sem VMR</span>'}
+                                ${race.status !== 'Finalizado' ? `<span class="bg-red-500/20 text-red-400 text-[10px] px-1.5 py-0.5 rounded font-bold ml-auto">${race.status}</span>` : ''}
+                            </div>
+                        </div>
+
+                        ${race.notes ? `<div class="text-[11px] text-gray-400 italic mb-2 truncate"><i class="fa-solid fa-circle-info text-f1red"></i> ${escapeHTML(race.notes)}</div>` : ''}
+
+                        <div class="flex items-center justify-between border-t border-cardborder/40 pt-2 mt-auto">
+                            <button onclick="openRaceModal(${i})" class="touch-target text-xs font-bold text-gray-300 hover:text-white flex items-center gap-1 transition">
+                                <i class="fa-solid fa-pen-to-square"></i> Editar Telemetria
+                            </button>
+                            <button onclick="deleteRace(${i})" class="touch-target text-xs text-red-400 hover:text-red-300 transition">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    racesList.appendChild(card);
+                } else {
+                    // Slot Vazio
+                    const card = document.createElement('div');
+                    card.className = 'bg-black/20 border border-dashed border-cardborder rounded-2xl p-4 flex flex-col items-center justify-center text-center hover:border-gray-500 transition cursor-pointer min-h-[140px] active:scale-98';
+                    card.onclick = () => openRaceModal(i);
+                    card.innerHTML = `
+                        <div class="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-gray-500 mb-2">
+                            <i class="fa-solid fa-plus text-sm"></i>
+                        </div>
+                        <p class="text-xs font-bold text-gray-400 uppercase">GP Slot Rodada ${i + 1}</p>
+                        <p class="text-[10px] text-gray-500 mt-0.5">Toque para adicionar resultado</p>
+                    `;
+                    racesList.appendChild(card);
+                }
+            }
+        }
+
+        function renderCompareTab() {
+            const container = document.getElementById('season-compare-checkboxes');
+            container.innerHTML = '';
+
+            state.seasons.forEach(season => {
+                const isChecked = state.selectedCompareIds.includes(season.id);
+                const team = CONSTRUCTORS.find(c => c.id === season.teamId) || CONSTRUCTORS[0];
+
+                const label = document.createElement('label');
+                label.className = `touch-target flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl border cursor-pointer select-none transition ${
+                    isChecked ? 'bg-black/60 border-f1red text-white shadow-sm' : 'bg-black/20 border-cardborder text-gray-400 hover:text-gray-200'
+                }`;
+
+                label.innerHTML = `
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleCompareSeason('${season.id}')" class="hidden">
+                    <span class="w-2.5 h-2.5 rounded-full" style="background-color:${team.color}"></span>
+                    <span>${escapeHTML(season.name)}</span>
+                `;
+                container.appendChild(label);
+            });
+
+            const selectedSeasons = state.seasons.filter(s => state.selectedCompareIds.includes(s.id));
+
+            renderComparisonMetrics(selectedSeasons);
+            renderComparisonTable(selectedSeasons);
+            renderCharts(selectedSeasons);
+        }
+
+        function toggleCompareSeason(seasonId) {
+            if (state.selectedCompareIds.includes(seasonId)) {
+                if (state.selectedCompareIds.length <= 1) {
+                    showToast('Selecione pelo menos 1 temporada para comparação', 'warning');
+                    return;
+                }
+                state.selectedCompareIds = state.selectedCompareIds.filter(id => id !== seasonId);
+            } else {
+                state.selectedCompareIds.push(seasonId);
+            }
+            renderCompareTab();
+        }
+
+        function renderComparisonMetrics(seasons) {
+            const grid = document.getElementById('comparison-metrics-grid');
+            grid.innerHTML = '';
+
+            if (seasons.length === 0) return;
+
+            let bestSeason = seasons[0];
+            let highestPts = -1;
+            let totalCareerPts = 0;
+            let totalCareerWins = 0;
+            let totalCareerPodiums = 0;
+
+            seasons.forEach(s => {
+                const stats = getSeasonStats(s);
+                totalCareerPts += stats.totalPoints;
+                totalCareerWins += stats.wins;
+                totalCareerPodiums += stats.podiums;
+
+                if (stats.totalPoints > highestPts) {
+                    highestPts = stats.totalPoints;
+                    bestSeason = s;
+                }
+            });
+
+            const metrics = [
+                { title: 'Pontos Totais', val: totalCareerPts, icon: 'fa-trophy', color: 'text-f1red' },
+                { title: 'Vitórias (P1)', val: totalCareerWins, icon: 'fa-flag-checkered', color: 'text-amber-400' },
+                { title: 'Pódios Totais', val: totalCareerPodiums, icon: 'fa-award', color: 'text-cyan-400' },
+                { title: 'Melhor Ano', val: bestSeason ? bestSeason.name : 'N/A', valSub: `(${highestPts} pts)`, icon: 'fa-crown', color: 'text-emerald-400' }
+            ];
+
+            metrics.forEach(m => {
+                const card = document.createElement('div');
+                card.className = 'bg-cardbg border border-cardborder rounded-2xl p-3 sm:p-4 flex items-center justify-between shadow-lg';
+                card.innerHTML = `
+                    <div>
+                        <div class="text-[10px] sm:text-xs font-mono text-gray-400 uppercase">${m.title}</div>
+                        <div class="text-lg sm:text-2xl font-black text-white font-mono mt-0.5">${m.val} <span class="text-[10px] sm:text-xs text-gray-400 font-normal">${m.valSub || ''}</span></div>
+                    </div>
+                    <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-black/40 flex items-center justify-center ${m.color} text-sm sm:text-lg border border-cardborder">
+                        <i class="fa-solid ${m.icon}"></i>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function renderComparisonTable(seasons) {
+            const tbody = document.getElementById('compare-table-body');
+            tbody.innerHTML = '';
+
+            if (seasons.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-gray-500">Nenhuma temporada selecionada</td></tr>`;
+                return;
+            }
+
+            seasons.forEach(s => {
+                const team = CONSTRUCTORS.find(c => c.id === s.teamId) || CONSTRUCTORS[0];
+                const stats = getSeasonStats(s);
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-white/5 transition';
+                tr.innerHTML = `
+                    <td class="p-2.5 sm:p-3 font-bold text-white flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full" style="background-color:${team.color}"></span>
+                        ${escapeHTML(s.name)}
+                    </td>
+                    <td class="p-2.5 sm:p-3 text-gray-300">${team.name}</td>
+                    <td class="p-2.5 sm:p-3 text-center text-gray-400">${stats.completedRaces} / 10</td>
+                    <td class="p-2.5 sm:p-3 text-center text-amber-400 font-bold">${stats.wins}</td>
+                    <td class="p-2.5 sm:p-3 text-center text-cyan-300 font-bold">${stats.podiums}</td>
+                    <td class="p-2.5 sm:p-3 text-center text-gray-300">P${stats.avgFinish}</td>
+                    <td class="p-2.5 sm:p-3 text-center text-red-400">${stats.dnfs}</td>
+                    <td class="p-2.5 sm:p-3 text-right font-black text-f1red text-sm sm:text-base">${stats.totalPoints}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderCharts(seasons) {
+            // Gráfico 1: Pontuação Cumulativa
+            const ctxPoints = document.getElementById('pointsChart').getContext('2d');
+            if (pointsChartInstance) pointsChartInstance.destroy();
+
+            const datasetsPoints = seasons.map(s => {
+                const team = CONSTRUCTORS.find(c => c.id === s.teamId) || CONSTRUCTORS[0];
+                let runningPts = 0;
+                const data = [0];
+
+                for (let i = 0; i < 10; i++) {
+                    if (s.races[i]) {
+                        runningPts += calculateRacePoints(s.races[i]);
+                    }
+                    data.push(runningPts);
+                }
+
+                return {
+                    label: s.name,
+                    data: data,
+                    borderColor: team.color,
+                    backgroundColor: team.color + '22',
+                    tension: 0.3,
+                    borderWidth: 2.5,
+                    pointRadius: 3,
+                    pointBackgroundColor: team.color
+                };
+            });
+
+            pointsChartInstance = new Chart(ctxPoints, {
+                type: 'line',
+                data: {
+                    labels: ['Início', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10'],
+                    datasets: datasetsPoints
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#9ca3af', font: { family: 'Inter', size: 11 } } }
+                    },
+                    scales: {
+                        x: { grid: { color: '#2a2a36' }, ticks: { color: '#9ca3af', font: { size: 10 } } },
+                        y: { grid: { color: '#2a2a36' }, ticks: { color: '#9ca3af', font: { size: 10 } }, beginAtZero: true }
+                    }
+                }
+            });
+
+            // Gráfico 2: Posição de Chegada
+            const ctxFinish = document.getElementById('finishChart').getContext('2d');
+            if (finishChartInstance) finishChartInstance.destroy();
+
+            const datasetsFinish = seasons.map(s => {
+                const team = CONSTRUCTORS.find(c => c.id === s.teamId) || CONSTRUCTORS[0];
+                const data = [];
+
+                for (let i = 0; i < 10; i++) {
+                    if (s.races[i]) {
+                        data.push(s.races[i].finish);
+                    } else {
+                        data.push(null);
+                    }
+                }
+
+                return {
+                    label: s.name,
+                    data: data,
+                    borderColor: team.color,
+                    backgroundColor: team.color,
+                    tension: 0.2,
+                    borderWidth: 2,
+                    pointRadius: 4
+                };
+            });
+
+            finishChartInstance = new Chart(ctxFinish, {
+                type: 'line',
+                data: {
+                    labels: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10'],
+                    datasets: datasetsFinish
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#9ca3af', font: { family: 'Inter', size: 11 } } }
+                    },
+                    scales: {
+                        x: { grid: { color: '#2a2a36' }, ticks: { color: '#9ca3af', font: { size: 10 } } },
+                        y: {
+                            reverse: true, // P1 no topo
+                            min: 1,
+                            max: 20,
+                            grid: { color: '#2a2a36' },
+                            ticks: { color: '#9ca3af', stepSize: 2, font: { size: 10 }, callback: v => 'P' + v }
+                        }
+                    }
+                }
+            });
+
+            // Gráfico 3: Média Grid vs Média Chegada
+            const ctxPace = document.getElementById('paceChart').getContext('2d');
+            if (paceChartInstance) paceChartInstance.destroy();
+
+            const labelsPace = seasons.map(s => s.name);
+            const gridData = [];
+            const finishData = [];
+
+            seasons.forEach(s => {
+                const stats = getSeasonStats(s);
+                gridData.push(parseFloat(stats.avgGrid) || 0);
+                finishData.push(parseFloat(stats.avgFinish) || 0);
+            });
+
+            paceChartInstance = new Chart(ctxPace, {
+                type: 'bar',
+                data: {
+                    labels: labelsPace,
+                    datasets: [
+                        {
+                            label: 'Média de Largada (Grid)',
+                            data: gridData,
+                            backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                            borderColor: '#3b82f6',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Média de Chegada (Corrida)',
+                            data: finishData,
+                            backgroundColor: 'rgba(225, 6, 0, 0.8)',
+                            borderColor: '#e10600',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#9ca3af', font: { family: 'Inter', size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: P${ctx.raw}` } }
+                    },
+                    scales: {
+                        x: { grid: { color: '#2a2a36' }, ticks: { color: '#9ca3af', font: { size: 10 } } },
+                        y: {
+                            reverse: true,
+                            min: 1,
+                            max: 20,
+                            grid: { color: '#2a2a36' },
+                            ticks: { color: '#9ca3af', stepSize: 2, font: { size: 10 }, callback: v => 'P' + v }
+                        }
+                    }
+                }
+            });
+        }
+
+        function populateConstructorDropdown() {
+            const select = document.getElementById('modal-team-select');
+            select.innerHTML = '';
+            CONSTRUCTORS.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name;
+                select.appendChild(opt);
+            });
+        }
+
+        function populateTrackDropdown() {
+            const select = document.getElementById('modal-race-track');
+            select.innerHTML = '';
+            TRACKS.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = `${t.country} ${t.name}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function openCreateSeasonModal() {
+            document.getElementById('modal-season-title').innerText = 'Nova Temporada';
+            document.getElementById('modal-season-id').value = '';
+            document.getElementById('modal-season-name').value = `Temporada ${state.seasons.length + 1}`;
+            document.getElementById('modal-driver-name').value = state.seasons.length > 0 ? state.seasons[0].driver : 'Seu Piloto';
+            document.getElementById('modal-team-select').value = CONSTRUCTORS[0].id;
+
+            document.getElementById('season-modal').classList.remove('hidden');
+        }
+
+        function openEditSeasonModal(seasonId) {
+            const season = state.seasons.find(s => s.id === seasonId);
+            if (!season) return;
+
+            document.getElementById('modal-season-title').innerText = 'Editar Temporada';
+            document.getElementById('modal-season-id').value = season.id;
+            document.getElementById('modal-season-name').value = season.name;
+            document.getElementById('modal-driver-name').value = season.driver;
+            document.getElementById('modal-team-select').value = season.teamId;
+
+            document.getElementById('season-modal').classList.remove('hidden');
+        }
+
+        function closeSeasonModal() {
+            document.getElementById('season-modal').classList.add('hidden');
+        }
+
+        function handleSaveSeason(e) {
+            e.preventDefault();
+            const id = document.getElementById('modal-season-id').value;
+            const name = document.getElementById('modal-season-name').value;
+            const driver = document.getElementById('modal-driver-name').value;
+            const teamId = document.getElementById('modal-team-select').value;
+
+            if (id) {
+                const season = state.seasons.find(s => s.id === id);
+                if (season) {
+                    season.name = name;
+                    season.driver = driver;
+                    season.teamId = teamId;
+                }
+            } else {
+                const newSeason = {
+                    id: 's-' + Date.now(),
+                    name: name,
+                    driver: driver,
+                    teamId: teamId,
+                    races: []
+                };
+                state.seasons.push(newSeason);
+                state.activeSeasonId = newSeason.id;
+                state.selectedCompareIds.push(newSeason.id);
+            }
+
+            saveState();
+            closeSeasonModal();
+            renderSeasonsTab();
+            showToast('Temporada salva com sucesso!', 'success');
+        }
+
+        function deleteSeason(seasonId) {
+            if (!confirm('Tem certeza que deseja excluir esta temporada e todos os seus dados?')) return;
+
+            state.seasons = state.seasons.filter(s => s.id !== seasonId);
+            state.selectedCompareIds = state.selectedCompareIds.filter(id => id !== seasonId);
+
+            if (state.seasons.length > 0) {
+                state.activeSeasonId = state.seasons[0].id;
+            } else {
+                state.activeSeasonId = null;
+            }
+
+            saveState();
+            renderSeasonsTab();
+            showToast('Temporada removida', 'info');
+        }
+
+        function openRaceModal(raceIndex) {
+            const season = state.seasons.find(s => s.id === state.activeSeasonId);
+            if (!season) return;
+
+            const race = season.races[raceIndex] || {};
+
+            document.getElementById('modal-race-title').innerText = `Rodada ${raceIndex + 1} de 10`;
+            document.getElementById('modal-race-index').value = raceIndex;
+            document.getElementById('modal-race-track').value = race.trackId || TRACKS[raceIndex % TRACKS.length].id;
+            document.getElementById('modal-race-quali').value = race.quali || '';
+            document.getElementById('modal-race-grid').value = race.grid || 1;
+            document.getElementById('modal-race-finish').value = race.finish || 1;
+            document.getElementById('modal-race-time').value = race.time || '';
+            document.getElementById('modal-race-fl').checked = !!race.fl;
+            document.getElementById('modal-race-status').value = race.status || 'Finalizado';
+            document.getElementById('modal-race-notes').value = race.notes || '';
+
+            document.getElementById('race-modal').classList.remove('hidden');
+        }
+
+        function closeRaceModal() {
+            document.getElementById('race-modal').classList.add('hidden');
+        }
+
+        function handleSaveRace(e) {
+            e.preventDefault();
+            const season = state.seasons.find(s => s.id === state.activeSeasonId);
+            if (!season) return;
+
+            const idx = parseInt(document.getElementById('modal-race-index').value);
+            const raceData = {
+                trackId: document.getElementById('modal-race-track').value,
+                quali: document.getElementById('modal-race-quali').value,
+                grid: parseInt(document.getElementById('modal-race-grid').value),
+                finish: parseInt(document.getElementById('modal-race-finish').value),
+                time: document.getElementById('modal-race-time').value,
+                fl: document.getElementById('modal-race-fl').checked,
+                status: document.getElementById('modal-race-status').value,
+                notes: document.getElementById('modal-race-notes').value
+            };
+
+            season.races[idx] = raceData;
+
+            saveState();
+            closeRaceModal();
+            renderSeasonsTab();
+            showToast(`Rodada ${idx + 1} atualizada!`, 'success');
+        }
+
+        function deleteRace(raceIndex) {
+            const season = state.seasons.find(s => s.id === state.activeSeasonId);
+            if (!season) return;
+
+            season.races.splice(raceIndex, 1);
+            saveState();
+            renderSeasonsTab();
+            showToast('GP removido', 'info');
+        }
+
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `F1_Carreira_${new Date().toISOString().slice(0,10)}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            showToast('Dados exportados em JSON!', 'success');
+        }
+
+        function importData(event) {
+            const fileReader = new FileReader();
+            fileReader.onload = function(e) {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (imported && imported.seasons) {
+                        state = imported;
+                        saveState();
+                        initApp();
+                        showToast('Dados importados com sucesso!', 'success');
+                    } else {
+                        showToast('Arquivo JSON inválido', 'error');
+                    }
+                } catch(err) {
+                    showToast('Erro ao ler arquivo JSON', 'error');
+                }
+            };
+            fileReader.readAsText(event.target.files[0]);
+        }
+
+        function showToast(msg, type = 'info') {
+            const toastContainer = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+
+            const bgClass = type === 'success' ? 'bg-emerald-600' : type === 'warning' ? 'bg-amber-600' : type === 'error' ? 'bg-red-600' : 'bg-f1red';
+
+            toast.className = `${bgClass} text-white px-3.5 py-2.5 rounded-xl text-xs font-bold shadow-2xl flex items-center gap-2 transform transition-all duration-300 translate-y-2 opacity-0 pointer-events-auto`;
+            toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${escapeHTML(msg)}</span>`;
+
+            toastContainer.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
+        }
+    </script>
+</body>
+</html>
